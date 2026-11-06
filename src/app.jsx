@@ -32,11 +32,10 @@ const MANIFESTO = [
   { t: "art", em: true },
   { t: "of" },
   { t: "filmmaking", em: true },
-  { t: "and every one" },
-  { t: "of its aspects.", mute: true },
+  { t: "and every one of its aspects." },
 ];
 const WORDS = MANIFESTO.flatMap((seg) =>
-  seg.t.split(" ").map((w) => ({ w, em: seg.em, mute: seg.mute }))
+  seg.t.split(" ").map((w) => ({ w, em: seg.em }))
 );
 
 const THEMES = ["01", "02", "03", "04"];
@@ -51,6 +50,105 @@ const CONFETTI = Array.from({ length: 40 }, (_, i) => ({
   width: 6 + (i % 3) * 3,
 }));
 
+// Elements where the cursor becomes a spinning asterisk in a big circle
+const STAR_TARGETS =
+  "a, button, .feat, .cat, .theme-card, .ticket, .cd, .strip-track span, .host-card, .podium .step, .btn";
+// Elements where the cursor becomes a ring
+const TEXT_TARGETS = "h1, h2, h3, p, small, b, em, .w, .sw, .tagline, .date-big";
+
+/* ---------- cursor colour rules ---------- */
+
+// How far above and below the centre each half of the cursor samples the page
+const SAMPLE = { dot: 4, text: 12, star: 20 };
+
+// What each colour family turns into, per cursor mode
+const PALETTE = {
+  dot: {
+    light: "#106e94", // cream -> teal
+    blue: "#d6266b", // blue -> red
+    navy: "#fbf3e9",
+    orange: "#0b1f5c",
+    black: "#fbf3e9",
+    pink: "#d6266b",
+  },
+  text: {
+    light: "#1450b4", // white -> blue
+    blue: "#ea8556", // blue -> orange
+    navy: "#ea8556",
+    orange: "#0b0b0b", // orange -> black
+    black: "#fbf3e9",
+    pink: "#ffffff",
+  },
+  star: {
+    light: "#1450b4", // white -> blue
+    blue: "#ea8556", // blue -> orange
+    navy: "#ea8556",
+    orange: "#0b0b0b", // orange -> black
+    black: "#ea8556",
+    pink: "#2a1a7a", // rainbow / pink -> deep indigo
+  },
+};
+
+// Colour of the asterisk, chosen to contrast with the circle
+const INK = {
+  light: "#fbf3e9",
+  blue: "#0b1f5c",
+  navy: "#0b1f5c",
+  orange: "#ea8556",
+  black: "#ea8556",
+  pink: "#ff3fb0",
+};
+
+function parseRGB(str) {
+  const m = str && str.match(/rgba?\(([^)]+)\)/);
+  if (!m) return null;
+  const p = m[1].split(",").map((s) => parseFloat(s));
+  return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
+}
+
+// Walks up from an element to find the colour the user actually sees there
+function resolveBg(el) {
+  let n = el;
+  while (n && n !== document.documentElement) {
+    if (n.classList && n.classList.contains("cat") && n.matches(":hover")) {
+      return n.classList.contains("ai") ? { grad: true } : { r: 234, g: 133, b: 86, a: 1 };
+    }
+    const bg = parseRGB(getComputedStyle(n).backgroundColor);
+    if (bg && bg.a > 0.5) return bg;
+    n = n.parentElement;
+  }
+  return { r: 251, g: 243, b: 233, a: 1 };
+}
+
+function classify(c) {
+  if (c.grad) return "pink";
+  const { r, g, b } = c;
+  const L = (Math.max(r, g, b) + Math.min(r, g, b)) / 510;
+  if (L > 0.85) return "light";
+  if (r > 150 && b > 150 && g < 140) return "pink";
+  if (r > 180 && r > g + 40 && b < 130) return "orange";
+  if (b > r + 40 && b > g) return L < 0.25 ? "navy" : "blue";
+  if (L < 0.2) return "black";
+  return "light";
+}
+
+function classifyAt(x, y, skip) {
+  const list = document.elementsFromPoint(x, y);
+  for (const e of list) {
+    if (skip.contains(e)) continue;
+    return classify(resolveBg(e));
+  }
+  return "light";
+}
+
+// Glitch the AI row when the pointer leaves it
+function glitchOnLeave(e) {
+  const n = e.currentTarget;
+  n.classList.remove("glitch");
+  void n.offsetWidth;
+  n.classList.add("glitch");
+}
+
 const STYLES = `
 :root {
   --navy: #0b1f5c;
@@ -59,7 +157,7 @@ const STYLES = `
   --orange: #ea8556;
   --cream: #fbf3e9;
   --ink: #0b1f5c;
-  --teal: #0f6f6b;
+  --teal: #106e94;
   --font-display: "Archivo", system-ui, sans-serif;
   --font-serif: "Instrument Serif", Georgia, serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
@@ -77,6 +175,64 @@ body {
 img { max-width: 100%; display: block; }
 a { color: inherit; }
 button { font: inherit; cursor: pointer; }
+
+/* custom cursor (desktop only) */
+html.has-cursor, html.has-cursor * { cursor: none !important; }
+
+.cursor {
+  --ring: #d6266b;
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 0;
+  z-index: 200;
+  pointer-events: none;
+  will-change: transform;
+}
+.cursor-circle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden;
+  transition: width 0.2s ease, height 0.2s ease;
+}
+.c-half {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 50%;
+  transition: background-color 0.12s linear;
+}
+.c-top { top: 0; background-color: #d6266b; }
+.c-bot { bottom: 0; background-color: #106e94; }
+
+.cursor-star {
+  position: absolute;
+  left: 30%;
+  top: 30%;
+  width: 40%;
+  height: 40%;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+/* text mode: thin ring over paragraphs and headings */
+.cursor[data-mode="text"] .cursor-circle {
+  width: 46px;
+  height: 46px;
+  background: transparent;
+  border: 1.5px solid var(--ring);
+}
+.cursor[data-mode="text"] .c-half { display: none; }
+
+/* star mode: big circle with a spinning asterisk */
+.cursor[data-mode="star"] .cursor-circle { width: 84px; height: 84px; }
+.cursor[data-mode="star"] .cursor-star { opacity: 1; animation: spin 10s linear infinite; }
 
 .site { position: relative; overflow-x: clip; }
 .mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase; margin: 0; }
@@ -139,7 +295,7 @@ button { font: inherit; cursor: pointer; }
 .hero { position: relative; min-height: 100svh; padding: 130px 20px 200px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; overflow: hidden; background: radial-gradient(60% 50% at 15% 30%, rgba(234, 133, 86, 0.55), transparent 70%), radial-gradient(55% 55% at 90% 75%, rgba(20, 80, 180, 0.45), transparent 70%), linear-gradient(#fbe9dc, #fbf3e9 60%); }
 .hero-mark { width: clamp(90px, 14vw, 160px); margin: 0 auto; animation: float 5s ease-in-out infinite; }
 @keyframes float { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-12px) rotate(2deg); } }
-.hero-title { margin: 10px 0 0; font-weight: 900; font-stretch: 125%; font-size: clamp(34px, 11vw, 200px); line-height: 0.9; letter-spacing: -0.02em; color: var(--blue); white-space: nowrap; }
+.hero-title { margin: 10px 0 0; font-weight: 900; font-stretch: 125%; font-size: clamp(34px, 8.6vw, 180px); line-height: 0.9; letter-spacing: -0.02em; color: var(--blue); white-space: nowrap; }
 .letter { display: inline-block; opacity: 0; transform: translateY(70%); animation: rise 0.9s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
 .letter.accent, .letter.star { color: var(--orange); }
 @keyframes rise { to { opacity: 1; transform: none; } }
@@ -171,7 +327,7 @@ button { font: inherit; cursor: pointer; }
 @keyframes marquee { to { transform: translateX(-50%); } }
 @keyframes marquee-rev { from { transform: translateX(-50%); } to { transform: translateX(0); } }
 
-.dot { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: var(--teal); animation: drift 8s ease-in-out infinite; }
+.dot { position: absolute; width: 14px; height: 14px; border-radius: 50%; background: #0f6f6b; animation: drift 8s ease-in-out infinite; }
 .dot.d1 { top: 22%; left: 12%; }
 .dot.d2 { top: 34%; right: 14%; background: #d6266b; animation-delay: -2s; }
 .dot.d3 { bottom: 30%; left: 40%; width: 10px; height: 10px; animation-delay: -4s; }
@@ -185,12 +341,13 @@ button { font: inherit; cursor: pointer; }
 .kicker b { padding: 3px 7px; border-radius: 4px; background: var(--orange); color: var(--navy); font-weight: 700; }
 .big-head { margin: 0; font-weight: 900; font-stretch: 120%; font-size: clamp(44px, 8.5vw, 120px); line-height: 0.92; letter-spacing: -0.02em; text-transform: uppercase; }
 
+/* manifesto: words start grey and turn blue one by one as you scroll */
 .manifesto { background: var(--cream); }
-.manifesto p.text { margin: 0; max-width: 1100px; font-weight: 800; font-stretch: 115%; font-size: clamp(30px, 4.6vw, 64px); line-height: 1.12; letter-spacing: -0.01em; color: var(--blue); }
-.w { display: inline-block; margin-right: 0.25em; opacity: 0.08; transform: translateY(0.3em); transition: opacity 0.6s, transform 0.6s; }
-.w.on { opacity: 1; transform: none; }
-.w.em { font-family: var(--font-serif); font-style: italic; font-weight: 400; color: var(--orange); }
-.w.mute.on { opacity: 0.25; }
+.manifesto p.text { margin: 0; max-width: 1100px; font-weight: 800; font-stretch: 115%; font-size: clamp(30px, 4.6vw, 64px); line-height: 1.12; letter-spacing: -0.01em; }
+.w { display: inline-block; margin-right: 0.25em; color: #c9cdd8; transition: color 0.5s ease; }
+.w.on { color: var(--blue); }
+.w.em { font-family: var(--font-serif); font-style: italic; font-weight: 400; color: #f0c3a6; }
+.w.em.on { color: var(--orange); }
 
 .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 60px; }
 .feat { min-height: 260px; padding: 28px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px; border: 2px solid var(--blue); border-radius: 18px; background: var(--cream); color: var(--navy); }
@@ -200,19 +357,77 @@ button { font: inherit; cursor: pointer; }
 .feat p { margin: 0; font-size: 16px; line-height: 1.4; }
 .feat p b { font-weight: 800; }
 
+/* categories */
 .cats { background: var(--blue); color: #fff; }
 .cats .big-head { color: #fff; }
-.cat-list { list-style: none; margin: 50px 0 0; padding: 0; border-top: 1px solid rgba(255, 255, 255, 0.3); }
-.cat { position: relative; display: flex; align-items: center; gap: clamp(16px, 3vw, 40px); padding: 22px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.3); overflow: hidden; transition: color 0.4s, opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1); }
-.cat::before { content: ""; position: absolute; inset: 0; background: var(--cream); transform: translateX(-101%); transition: transform 0.55s cubic-bezier(0.7, 0, 0.2, 1); }
-.cat.ai::before { background: linear-gradient(90deg, #ff3fb0, #7c5cff); }
+.cat-wrap { position: relative; margin-top: 50px; }
+.cat-list { position: relative; list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(255, 255, 255, 0.3); }
+
+/* bubble that trails the pointer, sits behind the rows */
+.cat-blob { position: absolute; left: 0; top: 0; width: 0; height: 0; z-index: 0; pointer-events: none; }
+.cat-blob-in {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 84px;
+  height: 84px;
+  margin: -42px 0 0 -42px;
+  border-radius: 50%;
+  background: var(--cream);
+  transform: scale(0);
+  opacity: 0;
+  transition: transform 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.3), opacity 0.3s ease;
+  animation: blobColor 6s linear infinite;
+}
+.cat-blob[data-on="1"] .cat-blob-in { transform: scale(1); opacity: 1; }
+@keyframes blobColor {
+  0% { background-color: #fbf3e9; }
+  50% { background-color: #ea8556; }
+  100% { background-color: #fbf3e9; }
+}
+
+.cat { position: relative; display: flex; align-items: center; gap: clamp(16px, 3vw, 40px); padding: 22px 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.3); overflow: hidden; color: #fff; transition: color 0.45s ease, opacity 0.8s cubic-bezier(0.2, 0.7, 0.2, 1), transform 0.8s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.cat::before { content: ""; position: absolute; inset: 0; background: var(--orange); transform: translateX(-101%); transition: transform 0.6s cubic-bezier(0.7, 0, 0.2, 1); }
 .cat:hover::before { transform: none; }
 .cat:hover { color: var(--navy); }
 .cat > * { position: relative; z-index: 1; }
-.cat-letter { width: clamp(60px, 10vw, 130px); text-align: center; font-weight: 900; font-size: clamp(70px, 12vw, 150px); line-height: 0.9; color: transparent; -webkit-text-stroke: 2px currentColor; transition: -webkit-text-stroke-color 0.4s; }
-.cat:hover .cat-letter { -webkit-text-stroke-color: var(--blue); }
-.cat-body small { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.2em; opacity: 0.8; }
-.cat-body h3 { margin: 4px 0; font-size: clamp(30px, 5vw, 68px); font-weight: 900; font-stretch: 120%; line-height: 1; }
+
+/* AI row: rainbow sweep on hover */
+.cat.ai::before {
+  background: linear-gradient(90deg, #ff3fb0, #ff9f1c, #ffe14d, #3ddc84, #2bb5ff, #7c5cff, #ff3fb0);
+  background-size: 300% 100%;
+  animation: rainbow 3s linear infinite;
+}
+@keyframes rainbow {
+  from { background-position: 0% 50%; }
+  to { background-position: 300% 50%; }
+}
+
+/* AI row: glitch after the pointer leaves */
+.cat.ai.glitch { animation: glitch 0.6s steps(4, end); }
+@keyframes glitch {
+  0% { transform: translate(0, 0); text-shadow: none; clip-path: none; }
+  20% { transform: translate(-4px, 1px); text-shadow: 3px 0 #ea8556, -3px 0 #1450b4; }
+  40% { transform: translate(5px, -1px); text-shadow: -3px 0 #ea8556, 3px 0 #1450b4; clip-path: inset(10% 0 40% 0); }
+  60% { transform: translate(-2px, 2px); clip-path: inset(60% 0 5% 0); }
+  80% { transform: translate(3px, 0); text-shadow: 2px 0 #ea8556, -2px 0 #1450b4; clip-path: none; }
+  100% { transform: translate(0, 0); text-shadow: none; clip-path: none; }
+}
+
+.cat-letter {
+  width: clamp(60px, 10vw, 130px);
+  text-align: center;
+  font-weight: 900;
+  font-size: clamp(70px, 12vw, 150px);
+  line-height: 0.9;
+  color: transparent;
+  -webkit-text-stroke: 2px currentColor;
+  transition: color 0.45s ease, -webkit-text-stroke-color 0.45s ease;
+}
+.cat:hover .cat-letter { color: var(--blue); -webkit-text-stroke-color: var(--blue); }
+.cat-body small { display: block; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.2em; color: var(--orange); transition: color 0.45s ease; }
+.cat:hover .cat-body small { color: var(--blue); }
+.cat-body h3 { margin: 4px 0; font-size: clamp(30px, 5vw, 68px); font-weight: 900; font-stretch: 120%; line-height: 1; color: inherit; }
 .cat-body p { margin: 0; font-family: var(--font-serif); font-style: italic; font-size: clamp(16px, 2vw, 22px); opacity: 0.85; }
 .cat-icon { margin-left: auto; color: var(--blue); opacity: 0; transform: translateX(20px); transition: opacity 0.4s, transform 0.5s; }
 .cat:hover .cat-icon { opacity: 1; transform: none; }
@@ -337,6 +552,7 @@ button { font: inherit; cursor: pointer; }
   .nav { top: 10px; width: calc(100% - 20px); gap: 10px; padding: 6px 8px 6px 10px; }
   .brand span { font-size: 13px; }
   .hero { padding: 110px 16px 190px; }
+  .hero-title { font-size: clamp(30px, 9.5vw, 80px); }
   .hero-meta { flex-direction: column; gap: 18px; margin-top: 28px; }
   .date-block { text-align: center; }
   .countdown { width: 100%; max-width: 340px; justify-content: center; }
@@ -352,6 +568,7 @@ button { font: inherit; cursor: pointer; }
   .cat-letter { width: 54px; font-size: 64px; }
   .cat-body h3 { font-size: 28px; }
   .cat-icon { display: none; }
+  .cat-blob-in { width: 56px; height: 56px; margin: -28px 0 0 -28px; }
   .strip-track span { width: 48px; height: 48px; font-size: 22px; }
   .theme-grid { gap: 12px; }
   .seal { font-size: 10px; padding: 6px 9px; }
@@ -491,6 +708,94 @@ function FilmIcon() {
         </g>
       ))}
     </svg>
+  );
+}
+
+/* ---------- cursor ---------- */
+
+// The cursor is split into a top and a bottom half. Each half takes the colour
+// rule for whatever is under it, so one half can change while the other doesn't.
+// Desktop only.
+function CustomCursor() {
+  const el = useRef(null);
+  const topRef = useRef(null);
+  const botRef = useRef(null);
+  const starRef = useRef(null);
+
+  useEffect(() => {
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!fine) return;
+
+    document.documentElement.classList.add("has-cursor");
+    const node = el.current;
+    const topEl = topRef.current;
+    const botEl = botRef.current;
+    const starEl = starRef.current;
+    let mode = "dot";
+    let px = -100;
+    let py = -100;
+    let queued = false;
+
+    const paint = () => {
+      queued = false;
+      const off = SAMPLE[mode];
+      const topCat = classifyAt(px, py - off, node);
+      const botCat = classifyAt(px, py + off, node);
+      const pal = PALETTE[mode];
+      topEl.style.backgroundColor = pal[topCat];
+      botEl.style.backgroundColor = pal[botCat];
+      node.style.setProperty("--ring", pal[topCat]);
+      starEl.style.color = INK[topCat];
+    };
+    const schedule = () => {
+      if (!queued) {
+        queued = true;
+        requestAnimationFrame(paint);
+      }
+    };
+    const onMove = (e) => {
+      px = e.clientX;
+      py = e.clientY;
+      node.style.transform = `translate3d(${px}px, ${py}px, 0)`;
+      schedule();
+    };
+    const onOver = (e) => {
+      const t = e.target;
+      if (!(t instanceof Element)) return;
+      const next = t.closest(STAR_TARGETS) ? "star" : t.closest(TEXT_TARGETS) ? "text" : "dot";
+      if (next !== mode) {
+        mode = next;
+        node.dataset.mode = mode;
+      }
+      schedule();
+    };
+
+    window.addEventListener("pointermove", onMove, { passive: true });
+    document.addEventListener("pointerover", onOver);
+    window.addEventListener("scroll", schedule, { passive: true });
+
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerover", onOver);
+      window.removeEventListener("scroll", schedule);
+      document.documentElement.classList.remove("has-cursor");
+    };
+  }, []);
+
+  return (
+    <div ref={el} className="cursor" data-mode="dot" aria-hidden="true">
+      <span className="cursor-circle">
+        <span className="c-half c-top" ref={topRef} />
+        <span className="c-half c-bot" ref={botRef} />
+        <svg className="cursor-star" viewBox="0 0 40 40" ref={starRef}>
+          <g stroke="currentColor" strokeWidth="6" strokeLinecap="round">
+            <line x1="20" y1="6" x2="20" y2="34" />
+            <line x1="8.4" y1="13" x2="31.6" y2="27" />
+            <line x1="8.4" y1="27" x2="31.6" y2="13" />
+          </g>
+        </svg>
+      </span>
+    </div>
   );
 }
 
@@ -641,7 +946,33 @@ function Hero() {
 }
 
 function Manifesto() {
-  const [ref, inView] = useInView(0.35);
+  const ref = useRef(null);
+  const [lit, setLit] = useState(0);
+
+  // Scroll-linked: words turn blue one by one as the paragraph moves up the screen.
+  // Progress runs from when the top of the paragraph hits 80% of the viewport
+  // to when the bottom of it reaches 35% of the viewport.
+  useEffect(() => {
+    const onScroll = () => {
+      const el = ref.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const startY = window.innerHeight * 0.8;
+      const endY = window.innerHeight * 0.35;
+      const span = r.height + startY - endY;
+      const f = span > 0 ? (startY - r.top) / span : 0;
+      const clamped = Math.min(1, Math.max(0, f));
+      setLit(Math.round(clamped * WORDS.length));
+    };
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, []);
+
   return (
     <section id="about" className="section manifesto">
       <Reveal className="kicker">
@@ -651,8 +982,7 @@ function Manifesto() {
         {WORDS.map((x, i) => (
           <span
             key={i}
-            className={`w ${x.em ? "em" : ""} ${x.mute ? "mute" : ""} ${inView ? "on" : ""}`}
-            style={{ transitionDelay: `${i * 35}ms` }}
+            className={`w ${x.em ? "em" : ""} ${i < lit ? "on" : ""}`}
           >
             {x.w}
           </span>
@@ -683,16 +1013,70 @@ function Manifesto() {
   );
 }
 
-function Categories() {
+// Category list with a bubble that trails the pointer inside the list
+function CategoryList() {
+  const wrapRef = useRef(null);
+  const blobRef = useRef(null);
+
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    const blob = blobRef.current;
+    if (!wrap || !blob) return;
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!fine) return;
+
+    let tx = 0;
+    let ty = 0;
+    let x = 0;
+    let y = 0;
+    let raf;
+
+    const onMove = (e) => {
+      const r = wrap.getBoundingClientRect();
+      tx = e.clientX - r.left;
+      ty = e.clientY - r.top;
+    };
+    const onEnter = () => {
+      blob.dataset.on = "1";
+    };
+    const onLeave = () => {
+      blob.dataset.on = "0";
+    };
+    const loop = () => {
+      // lag behind the pointer for a soft, trailing feel
+      x += (tx - x) * 0.14;
+      y += (ty - y) * 0.14;
+      blob.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+      raf = requestAnimationFrame(loop);
+    };
+
+    wrap.addEventListener("pointermove", onMove, { passive: true });
+    wrap.addEventListener("pointerenter", onEnter);
+    wrap.addEventListener("pointerleave", onLeave);
+    raf = requestAnimationFrame(loop);
+
+    return () => {
+      wrap.removeEventListener("pointermove", onMove);
+      wrap.removeEventListener("pointerenter", onEnter);
+      wrap.removeEventListener("pointerleave", onLeave);
+      cancelAnimationFrame(raf);
+    };
+  }, []);
+
   return (
-    <section id="categories" className="section cats">
-      <Reveal className="kicker">
-        <b>01</b> Choose your reel
-      </Reveal>
-      <Split as="h2" className="big-head" text={"Five *categories.*\nZero *rules.*"} />
+    <div className="cat-wrap" ref={wrapRef}>
+      <div className="cat-blob" ref={blobRef} data-on="0" aria-hidden="true">
+        <span className="cat-blob-in" />
+      </div>
       <ul className="cat-list">
         {CATEGORIES.map((c, i) => (
-          <Reveal as="li" key={c.letter} delay={i * 90} className={`cat ${c.ai ? "ai" : ""}`}>
+          <Reveal
+            as="li"
+            key={c.letter}
+            delay={i * 90}
+            className={`cat ${c.ai ? "ai" : ""}`}
+            onPointerLeave={c.ai ? glitchOnLeave : undefined}
+          >
             <span className="cat-letter">{c.letter}</span>
             <div className="cat-body">
               <small>Category {c.letter}</small>
@@ -703,6 +1087,18 @@ function Categories() {
           </Reveal>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function Categories() {
+  return (
+    <section id="categories" className="section cats">
+      <Reveal className="kicker">
+        <b>01</b> Choose your reel
+      </Reveal>
+      <Split as="h2" className="big-head" text={"Five *categories.*\nZero *rules.*"} />
+      <CategoryList />
     </section>
   );
 }
@@ -937,6 +1333,7 @@ export default function App() {
           }}
         />
       )}
+      <CustomCursor />
       <Nav />
       <main>
         <Hero />
@@ -952,4 +1349,4 @@ export default function App() {
       <SoundToggle on={soundOn} onToggle={() => setSoundOn((s) => !s)} />
     </div>
   );
-}
+} 

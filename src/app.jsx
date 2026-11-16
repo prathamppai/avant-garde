@@ -5,6 +5,31 @@ import navkisLogo from "/navkis-logo.png";
 const IG = "https://instagram.com/avantgarde.filmfest";
 const FEST_DATE = new Date("2027-06-26T00:00:00");
 
+// Magnetic effect strength
+const MAGNETIC_RADIUS = 80;
+const MAGNETIC_STRENGTH = 0.15;
+
+// Particle burst on click
+function useClickBurst() {
+  const burstRef = useRef([]);
+  const triggerBurst = useCallback((x, y, color = "#ea8556", count = 12) => {
+    const particles = Array.from({ length: count }, (_, i) => ({
+      id: Date.now() + i,
+      x,
+      y,
+      angle: (Math.PI * 2 * i) / count + Math.random() * 0.3,
+      speed: 60 + Math.random() * 100,
+      size: 3 + Math.random() * 5,
+      color,
+      life: 1,
+      decay: 0.015 + Math.random() * 0.01,
+    }));
+    burstRef.current = [...burstRef.current, ...particles];
+  }, []);
+
+  return [burstRef, triggerBurst];
+}
+
 const NAV = [
   { id: "about", label: "About" },
   { id: "categories", label: "Categories" },
@@ -176,6 +201,23 @@ img { max-width: 100%; display: block; }
 a { color: inherit; }
 button { font: inherit; cursor: pointer; }
 
+/* subtle grain texture overlay */
+.site::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.035;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  background-size: 256px;
+  animation: grainShift 8s linear infinite;
+}
+@keyframes grainShift {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(256px, 256px); }
+}
+
 /* custom cursor (desktop only) */
 html.has-cursor, html.has-cursor * { cursor: none !important; }
 
@@ -206,10 +248,11 @@ html.has-cursor, html.has-cursor * { cursor: none !important; }
   left: 0;
   width: 100%;
   height: 50%;
+  background-color: transparent !important;
   transition: background-color 0.12s linear;
 }
-.c-top { top: 0; background-color: #d6266b; }
-.c-bot { bottom: 0; background-color: #106e94; }
+.c-top { top: 0; }
+.c-bot { bottom: 0; }
 
 .cursor-star {
   position: absolute;
@@ -256,6 +299,115 @@ html.has-cursor, html.has-cursor * { cursor: none !important; }
   text-transform: none;
   letter-spacing: 0;
   color: var(--orange);
+}
+
+/* click burst particles */
+.click-burst {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+.click-burst span {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: burstFade 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+}
+@keyframes burstFade {
+  0% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  100% { opacity: 0; transform: translate3d(var(--tx, 0), var(--ty, 0), 0) scale(0); }
+}
+
+/* magnetic button hover glow */
+.btn {
+  position: relative;
+  overflow: visible;
+}
+.btn::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 50%, currentColor 0%, transparent 70%);
+  opacity: 0;
+  filter: blur(12px);
+  transition: opacity 0.3s ease;
+  z-index: -1;
+}
+.btn:hover::before { opacity: 0.25; }
+
+/* card hover lift with magnetic pull */
+.magnetic-card {
+  transition: transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.4s ease;
+}
+.magnetic-card:hover {
+  transform: translateY(-8px) scale(1.015);
+  box-shadow: 0 30px 60px rgba(11, 31, 92, 0.3);
+}
+
+/* floating orbs background */
+.floating-orbs {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.floating-orbs span {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.4;
+  animation: orbFloat 20s ease-in-out infinite;
+}
+@keyframes orbFloat {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(30px, -40px) scale(1.1); }
+  50% { transform: translate(-20px, 20px) scale(0.9); }
+  75% { transform: translate(40px, 30px) scale(1.05); }
+}
+
+/* shimmer text effect */
+.shimmer-text {
+  background: linear-gradient(90deg, var(--ink), var(--blue), var(--orange), var(--ink));
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 3s linear infinite;
+}
+@keyframes shimmer { to { background-position: 300% 0; } }
+
+/* scroll progress indicator enhancement */
+.progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, var(--orange), var(--blue), var(--orange));
+  background-size: 200% 100%;
+  transform-origin: left;
+  z-index: 60;
+  animation: progressShift 4s linear infinite;
+}
+@keyframes progressShift { to { background-position: 200% 0; } }
+
+/* enhanced reveal with stagger */
+.reveal.up { transform: translateY(40px); }
+.reveal.down { transform: translateY(-40px); }
+.reveal.left { transform: translateX(-40px); }
+.reveal.right { transform: translateX(40px); }
+.reveal.scale { transform: scale(0.9); }
+.reveal.is-in { opacity: 1; transform: none; }
+
+/* parallax layers */
+.parallax-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  will-change: transform;
 }
 
 /* intro */
@@ -711,6 +863,85 @@ function FilmIcon() {
   );
 }
 
+/* ---------- Magnetic Button ---------- */
+function MagneticButton({ children, className = "", onClick, href, ...props }) {
+  const ref = useRef(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+  const [burstParticles, triggerBurst] = useClickBurst();
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
+    if (!fine) return;
+
+    const onMove = (e) => {
+      const rect = el.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const dx = (e.clientX - cx) * MAGNETIC_STRENGTH;
+      const dy = (e.clientY - cy) * MAGNETIC_STRENGTH;
+      setOffset({ x: dx, y: dy });
+    };
+    const onLeave = () => setOffset({ x: 0, y: 0 });
+
+    el.addEventListener("mousemove", onMove);
+    el.addEventListener("mouseleave", onLeave);
+    return () => {
+      el.removeEventListener("mousemove", onMove);
+      el.removeEventListener("mouseleave", onLeave);
+    };
+  }, []);
+
+  const handleClick = (e) => {
+    const el = ref.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      triggerBurst(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    }
+    onClick?.(e);
+  };
+
+  const Content = href ? "a" : "button";
+  const style = { transform: `translate3d(${offset.x}px, ${offset.y}px, 0)` };
+
+  return (
+    <Content
+      ref={ref}
+      className={`btn ${className}`}
+      style={style}
+      onClick={handleClick}
+      href={href}
+      {...props}
+    >
+      {children}
+      <ClickBurst particles={burstParticles} />
+    </Content>
+  );
+}
+
+function ClickBurst({ particles }) {
+  if (!particles.length) return null;
+  return (
+    <div className="click-burst" aria-hidden="true">
+      {particles.map((p) => (
+        <span
+          key={p.id}
+          style={{
+            left: p.x,
+            top: p.y,
+            width: p.size,
+            height: p.size,
+            background: p.color,
+            transform: `translate3d(${Math.cos(p.angle) * p.speed * (1 - p.life)}px, ${Math.sin(p.angle) * p.speed * (1 - p.life)}px, 0) scale(${p.life})`,
+            opacity: p.life,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
 /* ---------- cursor ---------- */
 
 // The cursor is split into a top and a bottom half. Each half takes the colour
@@ -785,8 +1016,8 @@ function CustomCursor() {
   return (
     <div ref={el} className="cursor" data-mode="dot" aria-hidden="true">
       <span className="cursor-circle">
-        <span className="c-half c-top" ref={topRef} />
-        <span className="c-half c-bot" ref={botRef} />
+        <span className="c-half c-top" ref={topRef} style={{ backgroundColor: 'transparent' }} />
+        <span className="c-half c-bot" ref={botRef} style={{ backgroundColor: 'transparent' }} />
         <svg className="cursor-star" viewBox="0 0 40 40" ref={starRef}>
           <g stroke="currentColor" strokeWidth="6" strokeLinecap="round">
             <line x1="20" y1="6" x2="20" y2="34" />

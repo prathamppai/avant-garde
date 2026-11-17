@@ -81,91 +81,6 @@ const STAR_TARGETS =
 // Elements where the cursor becomes a ring
 const TEXT_TARGETS = "h1, h2, h3, p, small, b, em, .w, .sw, .tagline, .date-big";
 
-/* ---------- cursor colour rules ---------- */
-
-// How far above and below the centre each half of the cursor samples the page
-const SAMPLE = { dot: 4, text: 12, star: 20 };
-
-// What each colour family turns into, per cursor mode
-const PALETTE = {
-  dot: {
-    light: "#106e94", // cream -> teal
-    blue: "#d6266b", // blue -> red
-    navy: "#fbf3e9",
-    orange: "#0b1f5c",
-    black: "#fbf3e9",
-    pink: "#d6266b",
-  },
-  text: {
-    light: "#1450b4", // white -> blue
-    blue: "#ea8556", // blue -> orange
-    navy: "#ea8556",
-    orange: "#0b0b0b", // orange -> black
-    black: "#fbf3e9",
-    pink: "#ffffff",
-  },
-  star: {
-    light: "#1450b4", // white -> blue
-    blue: "#ea8556", // blue -> orange
-    navy: "#ea8556",
-    orange: "#0b0b0b", // orange -> black
-    black: "#ea8556",
-    pink: "#2a1a7a", // rainbow / pink -> deep indigo
-  },
-};
-
-// Colour of the asterisk, chosen to contrast with the circle
-const INK = {
-  light: "#fbf3e9",
-  blue: "#0b1f5c",
-  navy: "#0b1f5c",
-  orange: "#ea8556",
-  black: "#ea8556",
-  pink: "#ff3fb0",
-};
-
-function parseRGB(str) {
-  const m = str && str.match(/rgba?\(([^)]+)\)/);
-  if (!m) return null;
-  const p = m[1].split(",").map((s) => parseFloat(s));
-  return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 };
-}
-
-// Walks up from an element to find the colour the user actually sees there
-function resolveBg(el) {
-  let n = el;
-  while (n && n !== document.documentElement) {
-    if (n.classList && n.classList.contains("cat") && n.matches(":hover")) {
-      return n.classList.contains("ai") ? { grad: true } : { r: 234, g: 133, b: 86, a: 1 };
-    }
-    const bg = parseRGB(getComputedStyle(n).backgroundColor);
-    if (bg && bg.a > 0.5) return bg;
-    n = n.parentElement;
-  }
-  return { r: 251, g: 243, b: 233, a: 1 };
-}
-
-function classify(c) {
-  if (c.grad) return "pink";
-  const { r, g, b } = c;
-  const L = (Math.max(r, g, b) + Math.min(r, g, b)) / 510;
-  if (L > 0.85) return "light";
-  if (r > 150 && b > 150 && g < 140) return "pink";
-  if (r > 180 && r > g + 40 && b < 130) return "orange";
-  if (b > r + 40 && b > g) return L < 0.25 ? "navy" : "blue";
-  if (L < 0.2) return "black";
-  return "light";
-}
-
-function classifyAt(x, y, skip) {
-  const list = document.elementsFromPoint(x, y);
-  for (const e of list) {
-    if (skip.contains(e)) continue;
-    return classify(resolveBg(e));
-  }
-  return "light";
-}
-
 // Glitch the AI row when the pointer leaves it
 function glitchOnLeave(e) {
   const n = e.currentTarget;
@@ -222,7 +137,7 @@ button { font: inherit; cursor: pointer; }
 html.has-cursor, html.has-cursor * { cursor: none !important; }
 
 .cursor {
-  --ring: #d6266b;
+  --ring: #ea8556;
   position: fixed;
   left: 0;
   top: 0;
@@ -230,52 +145,121 @@ html.has-cursor, html.has-cursor * { cursor: none !important; }
   height: 0;
   z-index: 200;
   pointer-events: none;
-  will-change: transform;
+  will-change: transform, width, height;
 }
 .cursor-circle {
   position: absolute;
   left: 0;
   top: 0;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  overflow: hidden;
-  transition: width 0.2s ease, height 0.2s ease;
+  background: var(--ring);
+  box-shadow:
+    0 0 0 2px var(--ring),
+    0 0 24px var(--ring),
+    0 0 48px var(--ring);
+  transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+              height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1),
+              box-shadow 0.3s ease,
+              background 0.3s ease;
 }
-.c-half {
+
+/* Continuous color shift animation on the cursor itself */
+.cursor-circle::before {
+  content: "";
   position: absolute;
-  left: 0;
+  inset: -4px;
+  border-radius: 50%;
+  background: linear-gradient(
+    45deg,
+    #ea8556 0%,
+    #1450b4 25%,
+    #ff3fb0 50%,
+    #00ff88 75%,
+    #ea8556 100%
+  );
+  background-size: 400% 400%;
+  opacity: 0.6;
+  mix-blend-mode: screen;
+  animation: cursorColorShift 6s ease-in-out infinite;
+  pointer-events: none;
+  z-index: -1;
+  filter: blur(8px);
+}
+@keyframes cursorColorShift {
+  0%, 100% { background-position: 0% 50%; }
+  25% { background-position: 100% 50%; }
+  50% { background-position: 50% 100%; }
+  75% { background-position: 50% 0%; }
+}
+
+/* Asterisk inside cursor - hidden by default, matches hero title asterisk style */
+.cursor-asterisk {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%) scale(0) rotate(0deg);
+  transform-origin: center center;
   width: 100%;
-  height: 50%;
-  background-color: transparent !important;
-  transition: background-color 0.12s linear;
-}
-.c-top { top: 0; }
-.c-bot { bottom: 0; }
-
-.cursor-star {
-  position: absolute;
-  left: 30%;
-  top: 30%;
-  width: 40%;
-  height: 40%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
   opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.2s ease, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* Match hero title asterisk: Archivo, weight 900, stretch 125%, orange */
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-stretch: 125%;
+  font-size: 42px; /* bigger asterisk */
+  line-height: 1;
+  color: var(--orange);
+  text-shadow: 0 0 8px rgba(234, 133, 86, 0.6), 0 0 16px rgba(234, 133, 86, 0.4);
 }
 
-/* text mode: thin ring over paragraphs and headings */
-.cursor[data-mode="text"] .cursor-circle {
-  width: 46px;
-  height: 46px;
+/* INTERACTION STATE: grows bigger, shows asterisk, color shifts more intensely */
+.cursor.interact .cursor-circle {
+  width: 72px;
+  height: 72px;
   background: transparent;
-  border: 1.5px solid var(--ring);
+  box-shadow:
+    0 0 0 4px var(--ring),
+    0 0 40px var(--ring),
+    0 0 80px var(--ring);
 }
-.cursor[data-mode="text"] .c-half { display: none; }
+.cursor.interact .cursor-circle::before {
+  opacity: 0.9;
+  filter: blur(12px);
+  animation-duration: 3s;
+}
+.cursor.interact .cursor-asterisk {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center center;
+}
 
-/* star mode: big circle with a spinning asterisk */
-.cursor[data-mode="star"] .cursor-circle { width: 84px; height: 84px; }
-.cursor[data-mode="star"] .cursor-star { opacity: 1; animation: spin 10s linear infinite; }
+/* Subtle ring pulse when interacting */
+.cursor.interact::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 72px;
+  height: 72px;
+  border: 2px solid var(--ring);
+  border-radius: 50%;
+  opacity: 0;
+  animation: ringPulse 1.5s ease-out infinite;
+  pointer-events: none;
+}
+@keyframes ringPulse {
+  0% { transform: translate(-50%, -50%) scale(1); opacity: 0.6; }
+  100% { transform: translate(-50%, -50%) scale(1.8); opacity: 0; }
+}
 
 .site { position: relative; overflow-x: clip; }
 .mono { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.15em; text-transform: uppercase; margin: 0; }
@@ -944,14 +928,9 @@ function ClickBurst({ particles }) {
 
 /* ---------- cursor ---------- */
 
-// The cursor is split into a top and a bottom half. Each half takes the colour
-// rule for whatever is under it, so one half can change while the other doesn't.
-// Desktop only.
+// Small dot by default, grows with asterisk on interaction, continuous color shift
 function CustomCursor() {
   const el = useRef(null);
-  const topRef = useRef(null);
-  const botRef = useRef(null);
-  const starRef = useRef(null);
 
   useEffect(() => {
     const fine = window.matchMedia("(hover: hover) and (pointer: fine)").matches;
@@ -959,72 +938,52 @@ function CustomCursor() {
 
     document.documentElement.classList.add("has-cursor");
     const node = el.current;
-    const topEl = topRef.current;
-    const botEl = botRef.current;
-    const starEl = starRef.current;
-    let mode = "dot";
     let px = -100;
     let py = -100;
-    let queued = false;
+    let isInteracting = false;
 
-    const paint = () => {
-      queued = false;
-      const off = SAMPLE[mode];
-      const topCat = classifyAt(px, py - off, node);
-      const botCat = classifyAt(px, py + off, node);
-      const pal = PALETTE[mode];
-      topEl.style.backgroundColor = pal[topCat];
-      botEl.style.backgroundColor = pal[botCat];
-      node.style.setProperty("--ring", pal[topCat]);
-      starEl.style.color = INK[topCat];
-    };
-    const schedule = () => {
-      if (!queued) {
-        queued = true;
-        requestAnimationFrame(paint);
+    // Elements that trigger the "interact" state
+    const INTERACT_TARGETS = "a, button, .feat, .cat, .theme-card, .ticket, .cd, .strip-track span, .host-card, .podium .step, .btn, .nav-links a, .nav-cta, .burger, .sound, .roll, .silent";
+
+    const updateInteraction = (e) => {
+      const target = e.target;
+      if (!(target instanceof Element)) return;
+      const interacting = target.closest(INTERACT_TARGETS) !== null;
+      if (interacting !== isInteracting) {
+        isInteracting = interacting;
+        node.classList.toggle("interact", isInteracting);
       }
     };
+
     const onMove = (e) => {
       px = e.clientX;
       py = e.clientY;
       node.style.transform = `translate3d(${px}px, ${py}px, 0)`;
-      schedule();
+      updateInteraction(e);
     };
-    const onOver = (e) => {
-      const t = e.target;
-      if (!(t instanceof Element)) return;
-      const next = t.closest(STAR_TARGETS) ? "star" : t.closest(TEXT_TARGETS) ? "text" : "dot";
-      if (next !== mode) {
-        mode = next;
-        node.dataset.mode = mode;
-      }
-      schedule();
+
+    const onOver = (e) => updateInteraction(e);
+    const onLeave = () => {
+      isInteracting = false;
+      node.classList.remove("interact");
     };
 
     window.addEventListener("pointermove", onMove, { passive: true });
     document.addEventListener("pointerover", onOver);
-    window.addEventListener("scroll", schedule, { passive: true });
+    document.addEventListener("pointerleave", onLeave);
 
     return () => {
       window.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerover", onOver);
-      window.removeEventListener("scroll", schedule);
+      document.removeEventListener("pointerleave", onLeave);
       document.documentElement.classList.remove("has-cursor");
     };
   }, []);
 
   return (
-    <div ref={el} className="cursor" data-mode="dot" aria-hidden="true">
+    <div ref={el} className="cursor" aria-hidden="true">
       <span className="cursor-circle">
-        <span className="c-half c-top" ref={topRef} style={{ backgroundColor: 'transparent' }} />
-        <span className="c-half c-bot" ref={botRef} style={{ backgroundColor: 'transparent' }} />
-        <svg className="cursor-star" viewBox="0 0 40 40" ref={starRef}>
-          <g stroke="currentColor" strokeWidth="6" strokeLinecap="round">
-            <line x1="20" y1="6" x2="20" y2="34" />
-            <line x1="8.4" y1="13" x2="31.6" y2="27" />
-            <line x1="8.4" y1="27" x2="31.6" y2="13" />
-          </g>
-        </svg>
+        <span className="cursor-asterisk" aria-hidden="true">*</span>
       </span>
     </div>
   );
